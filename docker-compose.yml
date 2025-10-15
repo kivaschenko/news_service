@@ -1,0 +1,49 @@
+version: "3.9"
+name: news_service
+services:
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: newsdb
+      POSTGRES_USER: newsuser
+      POSTGRES_PASSWORD: newspass
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data/
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+  worker:
+    build: .
+    command: celery -A news_service worker -l info
+    volumes:
+      - .:/code
+    depends_on:
+      - redis
+      - db
+  beat:
+    build: .
+    command: celery -A news_service beat -l info
+    volumes:
+      - .:/code
+    depends_on:
+      - redis
+      - db
+
+volumes:
+  pg_data:
+  redis_data:

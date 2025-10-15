@@ -37,6 +37,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # third paries
+    'rest_framework',
+    'apps.news',
 ]
 
 MIDDLEWARE = [
@@ -73,11 +76,23 @@ WSGI_APPLICATION = 'news_service.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    # 'default': {
+    #     'ENGINE': 'django.db.backends.sqlite3',
+    #     'NAME': BASE_DIR / 'db.sqlite3',
+    # }
+    'default' {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "newsdb",
+        "USER": "newuser",
+        "PASSWORD": "newpass",
+        "HOST": "db",
+        "PORT": 5432,
 }
+
+CELERY_BROKER_URL = "redis://redis:6379/0"
+CELERY_RESULT_BACKEND = "redis://redis:6379/0"
+
+OPEN_API_KEY = os.getenv("OPEN_API_KEY")
 
 
 # Password validation
