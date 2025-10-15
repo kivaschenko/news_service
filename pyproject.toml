@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "news-service"
+version = "0.1.0"
+description = "Parsing agro news, translate english articles and generate summarized notes by OpenAI"
+authors = ["Kostiantyn Ivashchenko <kivaschenko@protonmail.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+django = "^5.2.7"
+psycopg2-binary = "^2.9.11"
+djangorestframework = "^3.16.1"
+celery = {extras = ["redis"], version = "^5.5.3"}
+requests = "^2.32.5"
+beautifulsoup4 = "^4.14.2"
+openai = "^2.3.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
