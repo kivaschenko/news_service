@@ -83,16 +83,18 @@ WSGI_APPLICATION = "news_service.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "newsdb",
-        "USER": "newsuser",
-        "PASSWORD": "newspass",
-        "HOST": "db",
-        "PORT": 5432,
+        "NAME": os.getenv("DB_NAME", "news_service_db"),
+        "USER": os.getenv("DB_USER", "news_service_user"),
+        "PASSWORD": os.getenv("DB_PASSWORD", "news_service_password"),
+        "HOST": os.getenv("DB_HOST", "localhost"),  # Changed default to localhost
+        "PORT": int(os.getenv("DB_PORT", "5432")),
     }
 }
 
-CELERY_BROKER_URL = "redis://redis:6379/0"
-CELERY_RESULT_BACKEND = "redis://redis:6379/0"
+CELERY_BROKER_URL = os.getenv(
+    "CELERY_BROKER_URL", "redis://localhost:6379/1"
+)  # Using Redis DB 1
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
 
 CELERY_BEAT_SCHEDULE = {
     "parse-feeds-every-6h": {

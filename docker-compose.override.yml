@@ -1,0 +1,52 @@
+# docker-compose.override.yml
+# This file allows you to run only the Django app in Docker
+# while using your existing PostgreSQL and Redis instances
+
+version: "3.9"
+
+services:
+  # Only run the web service, disable db and redis
+  web:
+    environment:
+      - DB_HOST=host.docker.internal # Access host machine from container
+      - DB_NAME=${DB_NAME:-news_service_db}
+      - DB_USER=${DB_USER:-your_postgres_user}
+      - DB_PASSWORD=${DB_PASSWORD:-your_postgres_password}
+      - DB_PORT=${DB_PORT:-5432}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://host.docker.internal:6379/1}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://host.docker.internal:6379/1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Allow container to reach host services
+
+  worker:
+    environment:
+      - DB_HOST=host.docker.internal
+      - DB_NAME=${DB_NAME:-news_service_db}
+      - DB_USER=${DB_USER:-your_postgres_user}
+      - DB_PASSWORD=${DB_PASSWORD:-your_postgres_password}
+      - DB_PORT=${DB_PORT:-5432}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://host.docker.internal:6379/1}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://host.docker.internal:6379/1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  beat:
+    environment:
+      - DB_HOST=host.docker.internal
+      - DB_NAME=${DB_NAME:-news_service_db}
+      - DB_USER=${DB_USER:-your_postgres_user}
+      - DB_PASSWORD=${DB_PASSWORD:-your_postgres_password}
+      - DB_PORT=${DB_PORT:-5432}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://host.docker.internal:6379/1}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://host.docker.internal:6379/1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Disable the bundled database and redis services
+  db:
+    deploy:
+      replicas: 0
+
+  redis:
+    deploy:
+      replicas: 0

@@ -23,10 +23,13 @@ Django microservice with REST API for automatic parsing, translation, and compre
 ## Quick Start
 
 ### Prerequisites
-- Docker and Docker Compose
+- Docker and Docker Compose (for containerized setup)
+- **OR** Existing PostgreSQL and Redis instances
 - OpenAI API key
 
 ### Installation
+
+#### Option 1: Using Docker (All Services)
 
 1. **Clone the repository**:
 ```bash
@@ -49,9 +52,86 @@ docker-compose up -d
 docker-compose exec web python manage.py migrate
 ```
 
+#### Option 2: Using Existing PostgreSQL and Redis
+
+1. **Clone the repository**:
+```bash
+git clone <repo-url>
+cd news_service
+```
+
+2. **Create database in your existing PostgreSQL**:
+```sql
+-- Connect to your PostgreSQL instance
+CREATE DATABASE news_service_db;
+-- Optional: Create dedicated user
+CREATE USER news_service_user WITH PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE news_service_db TO news_service_user;
+```
+
+3. **Create .env file with your database settings**:
+```bash
+cat > .env << EOF
+OPENAI_API_KEY=your_openai_api_key_here
+DB_NAME=news_service_db
+DB_USER=news_service_user
+DB_PASSWORD=your_password
+DB_HOST=localhost
+DB_PORT=5432
+CELERY_BROKER_URL=redis://localhost:6379/1
+CELERY_RESULT_BACKEND=redis://localhost:6379/1
+EOF
+```
+
+4. **Install dependencies and run locally**:
+```bash
+# Install Poetry if not already installed
+curl -sSL https://install.python-poetry.org | python3 -
+
+# Install dependencies
+poetry install
+
+# Activate virtual environment
+poetry shell
+
+# Run migrations
+python manage.py migrate
+
+# Start Django server
+python manage.py runserver
+
+# In separate terminals, start Celery worker and beat
+celery -A news_service worker -l info
+celery -A news_service beat -l info
+```
+
+#### Option 3: Hybrid (Docker + Existing DB/Redis)
+
+Use Docker for the application but connect to your existing PostgreSQL and Redis:
+
+1. **Follow steps 1-3 from Option 2** (clone repo, create DB, setup .env)
+
+2. **Use the override file to disable bundled services**:
+```bash
+# The docker-compose.override.yml file is already configured
+# It will use your local PostgreSQL and Redis instead of containers
+
+# Start only the Django services
+docker-compose up -d
+```
+
+3. **Run migrations**:
+```bash
+docker-compose exec web python manage.py migrate
+```
+
 5. **Create superuser** (optional):
 ```bash
+# For Docker setup
 docker-compose exec web python manage.py createsuperuser
+
+# For local setup
+python manage.py createsuperuser
 ```
 
 6. **Start news parsing**:
@@ -168,16 +248,32 @@ SECRET_KEY=your-secret-key
 DEBUG=False
 ALLOWED_HOSTS=news.graintrade.info,yourdomain.com
 
-# Database
-DATABASE_URL=postgresql://user:pass@host:port/dbname
+# Database - Use your existing PostgreSQL
+DB_NAME=news_service_db
+DB_USER=your_postgres_user
+DB_PASSWORD=your_postgres_password
+DB_HOST=localhost
+DB_PORT=5432
 
 # OpenAI
 OPENAI_API_KEY=your-openai-key
 
-# Redis
-CELERY_BROKER_URL=redis://redis:6379/0
-CELERY_RESULT_BACKEND=redis://redis:6379/0
+# Redis - Use your existing Redis (different DB number to avoid conflicts)
+CELERY_BROKER_URL=redis://localhost:6379/1
+CELERY_RESULT_BACKEND=redis://localhost:6379/1
 ```
+
+### Database Setup Notes
+
+**Using Existing PostgreSQL:**
+- The service will create a new database `news_service_db` on your existing PostgreSQL server
+- Uses port 5432 (default PostgreSQL port) - no conflicts with your existing databases
+- You can use your existing PostgreSQL user or create a dedicated one
+
+**Using Existing Redis:**
+- Uses Redis database number `1` instead of `0` to avoid conflicts with other services
+- Redis supports 16 databases (0-15) by default, so this won't interfere with your existing services
+- If you need a different Redis DB number, modify the URLs: `redis://localhost:6379/2`, etc.
 
 ### Nginx Configuration
 
@@ -246,6 +342,29 @@ poetry run python manage.py test
 ### Database Issues
 - Check connection: `docker-compose logs db`
 - Run migrations: `docker-compose exec web python manage.py migrate`
+
+### Set up Database properly:
+```
+# Connect as postgres superuser (this should work)
+sudo -u postgres psql
+
+# Once in psql, run these commands:
+CREATE DATABASE news_service_db;
+CREATE USER news_service_user WITH PASSWORD 'news_service_password';
+GRANT ALL PRIVILEGES ON DATABASE news_service_db TO news_service_user;
+ALTER USER news_service_user CREATEDB;
+
+# Connect to the specific database and grant schema permissions
+\c news_service_db
+GRANT ALL ON SCHEMA public TO news_service_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO news_service_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO news_service_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO news_service_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO news_service_user;
+
+# Exit psql
+\q
+```
 
 ## License
 
