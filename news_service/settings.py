@@ -12,8 +12,12 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+from dotenv import load_dotenv
 
 from celery.schedules import crontab
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -92,9 +96,11 @@ DATABASES = {
 }
 
 CELERY_BROKER_URL = os.getenv(
-    "CELERY_BROKER_URL", "redis://localhost:6379/1"
+    "CELERY_BROKER_URL", "redis://:foobared@localhost:6379/1"
 )  # Using Redis DB 1
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
+CELERY_RESULT_BACKEND = os.getenv(
+    "CELERY_RESULT_BACKEND", "redis://:foobared@localhost:6379/1"
+)
 
 CELERY_BEAT_SCHEDULE = {
     "parse-feeds-every-6h": {

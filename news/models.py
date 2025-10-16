@@ -6,6 +6,11 @@ class Article(models.Model):
         ("en", "English"),
         ("uk", "Ukrainian"),
         ("ru", "Russian"),
+        ("de", "German"),
+        ("fr", "French"),
+        ("es", "Spanish"),
+        ("it", "Italian"),
+        ("unknown", "Unknown"),
     ]
 
     STATUS_CHOICES = [
@@ -24,7 +29,7 @@ class Article(models.Model):
     language = models.CharField(
         max_length=10,
         choices=LANGUAGE_CHOICES,
-        default="en",
+        default="unknown",
         help_text="Language of the article",
     )
     status = models.CharField(
@@ -45,6 +50,14 @@ class Article(models.Model):
     )
     tags = models.CharField(
         max_length=500, blank=True, help_text="Comma-separated tags"
+    )
+    authors = models.CharField(max_length=300, blank=True, help_text="Article authors")
+    meta_description = models.CharField(
+        max_length=500, blank=True, help_text="Meta description from source"
+    )
+    top_image = models.URLField(blank=True, help_text="URL of the main article image")
+    source_domain = models.CharField(
+        max_length=100, blank=True, help_text="Domain of the source website"
     )
 
     class Meta:
