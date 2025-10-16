@@ -71,6 +71,7 @@ def test_direct_url():
     test_urls = [
         "https://www.agriculture.com/news/crops/corn",
         "https://www.agweb.com/news",
+        "https://latifundist.com/novosti/maslichnye",
     ]
 
     for url in test_urls:

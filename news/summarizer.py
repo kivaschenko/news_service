@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import torch
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ class OpenSourceSummarizer:
         max_length: int = 150,
         min_length: int = 50,
         language: str = "en",
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Any]:
         """
         Summarize the given text
 
@@ -114,7 +114,7 @@ class OpenSourceSummarizer:
                 min_length=min_length,
                 do_sample=False,
                 truncation=True,
-            )
+            )  # type: ignore
 
             summary = summary_result[0]["summary_text"]
 
@@ -141,7 +141,7 @@ class OpenSourceSummarizer:
 
     def translate_and_summarize(
         self, text: str, source_lang: str = "auto"
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Any]:
         """
         Translate text to Ukrainian and then summarize
 
@@ -159,8 +159,8 @@ class OpenSourceSummarizer:
 
             if source_lang not in ["uk", "unknown"] and result["status"] == "success":
                 # Add a note that this needs translation
-                result["summary"] = (
-                    f"[Потребує перекладу з {source_lang}] " + result["summary"]
+                result["summary"] = f"[Потребує перекладу з {source_lang}] " + str(
+                    result["summary"]
                 )
                 result["needs_translation"] = True
             else:

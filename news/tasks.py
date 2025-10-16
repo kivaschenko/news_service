@@ -1,6 +1,5 @@
 import logging
 from urllib.parse import urlparse
-from django.conf import settings
 from celery import shared_task
 from .models import Article
 from .utils import fetch_article, extract_links_from_news_site
@@ -96,7 +95,8 @@ def process_single_article(url: str):
             word_count=int(article_data.get("word_count", "0")),
             status="processing",
         )
-
+        # Save to get an ID
+        article.save()
         # Set published date if available
         if article_data.get("publish_date"):
             try:
@@ -109,7 +109,7 @@ def process_single_article(url: str):
 
         # Generate summary using open-source model
         try:
-            logger.info(f"Generating summary for article {article.id}")
+            logger.info(f"Generating summary for article {article}")
             summary = summarize_article(article.content, language=article.language)
 
             # Update article with summary
@@ -117,10 +117,8 @@ def process_single_article(url: str):
             article.status = "completed"
             article.save()
 
-            logger.info(
-                f"Successfully processed article {article.id}: {article.title[:50]}..."
-            )
-            return f"Successfully processed: {article.title[:100]}"
+            logger.info(f"Successfully processed article {article}")
+            return f"Successfully processed: {article.id} - {article}"  # type: ignore
 
         except Exception as summary_error:
             logger.error(f"Error generating summary for {url}: {summary_error}")
