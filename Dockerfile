@@ -1,39 +1,36 @@
-# Stage 1: Build stage
-FROM python:3.12-slim AS builder
-WORKDIR /news_service
+FROM python:3.12-slim
 
 # Set environment variables
-ENV DJANGO_DEBUG=False
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# Install curl and Poetry
-RUN apt-get update && apt-get install -y --no-install-recommends curl && \
-    curl -sSL https://install.python-poetry.org | POETRY_HOME=/opt/poetry python && \
-    cd /usr/local/bin && \
-    ln -s /opt/poetry/bin/poetry && \
-    poetry config virtualenvs.create false && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# Set work directory
+WORKDIR /code
 
-# Copy only the necessary files for dependency installation
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Poetry
+RUN pip install poetry
+
+# Copy poetry files
 COPY pyproject.toml poetry.lock ./
-RUN poetry install --no-interaction --no-ansi --no-root
 
-# Copy the rest of the application code
+# Configure poetry: Don't create virtual environment
+RUN poetry config virtualenvs.create false
+
+# Install dependencies
+RUN poetry install --no-interaction --no-ansi
+
+# Copy project
 COPY . .
 
-# Collect static files during build (for production)
-RUN python manage.py collectstatic --noinput --clear --settings=core.settings || echo "Static files collection failed, will retry at runtime"
+# Create entrypoint script for migrations
+RUN echo '#!/bin/bash\npython manage.py migrate --noinput\nexec "$@"' > /entrypoint.sh \
+    && chmod +x /entrypoint.sh
 
-# Stage 2: Final stage
-FROM python:3.12-slim AS final
-WORKDIR /news_service
-
-
-# Copy the installed dependencies and application code from the builder stage
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-COPY --from=builder /news_service /news_service
-
-# Run database migrations at startup
-CMD python manage.py migrate --noinput --settings=core.settings || echo "Database migration failed, will retry at runtime"
-
-CMD [ "python3", "manage.py", "runserver", "0.0.0.0:8000" ]
+ENTRYPOINT ["/entrypoint.sh"]
