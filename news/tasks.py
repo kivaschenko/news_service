@@ -1,123 +1,226 @@
-import openai
-import feedparser
-from django.conf import settings
+import logging
+from urllib.parse import urlparse
 from celery import shared_task
 from .models import Article
-from .utils import fetch_article
+from .utils import fetch_article, extract_links_from_news_site
+from .summarizer import summarize_article
 
-RSS_FEEDS = [
-    "https://www.fao.org/news/rss-feed/en/",  # англомовний агросайт
-    "https://latifundist.com/novosti/feed/",  # український агросайт (RSS)
-    "https://www.world-grain.com/rss/",  # світові зернові ринки
-    "https://www.agriculture.com/rss/",  # сільське господарство
+logger = logging.getLogger(__name__)
+
+# List of news websites to scrape (not RSS feeds)
+NEWS_SITES = [
+    "https://www.agriculture.com/news",  # Agriculture news
+    "https://www.agweb.com/news",  # Ag Web news
+    "https://www.farm-online.com.au/news",  # Farm Online
+    "https://www.agdaily.com/news",  # Agriculture Daily
+    "https://www.farminguk.com/news",  # Farming UK
+    "https://www.producer.com/news",  # The Producer news
+    "https://www.grainnet.com/news",  # Grain Network
+    "https://agfax.com/category/news",  # AgFax news
 ]
 
 
 @shared_task
-def parse_feeds():
-    """Проходиться по списку RSS-джерел і додає нові статті в обробку"""
-    processed_count = 0
-    for feed_url in RSS_FEEDS:
+def discover_and_process_articles():
+    """
+    Main task to discover new articles from news sites and process them
+    """
+    total_processed = 0
+    total_discovered = 0
+
+    for site_url in NEWS_SITES:
         try:
-            parsed = feedparser.parse(feed_url)
-            for entry in parsed.entries[:5]:  # беремо останні 5 статей
-                url = entry.link
-                # Кидаємо в пайплайн обробки (парсинг + summary)
-                fetch_and_summarize_article.delay(url)
-                processed_count += 1
+            logger.info(f"Discovering articles from {site_url}")
+
+            # Extract article links from the news site
+            article_links = extract_links_from_news_site(site_url, max_links=5)
+            total_discovered += len(article_links)
+
+            logger.info(
+                f"Found {len(article_links)} potential articles from {site_url}"
+            )
+
+            # Process each discovered article
+            for article_url in article_links:
+                # Queue the article for processing
+                process_single_article.delay(article_url)
+                total_processed += 1
+
         except Exception as e:
-            print(f"Error parsing feed {feed_url}: {e}")
-    return f"Queued {processed_count} articles from {len(RSS_FEEDS)} feeds"
+            logger.error(f"Error discovering articles from {site_url}: {e}")
+            continue
+
+    logger.info(
+        f"Discovery completed: {total_discovered} articles found, {total_processed} queued for processing"
+    )
+    return f"Discovered {total_discovered} articles, queued {total_processed} for processing"
 
 
 @shared_task
-def fetch_and_summarize_article(url: str):
-    """Завантажує статтю, перекладає та створює стислий опис українською"""
+def process_single_article(url: str):
+    """
+    Process a single article: extract content, detect language, and create summary
+    """
     try:
-        # Перевіряємо чи стаття вже існує
+        # Check if article already exists
         if Article.objects.filter(source_url=url).exists():
+            logger.info(f"Article from {url} already exists, skipping")
             return f"Article from {url} already exists"
 
-        # Парсимо статтю
-        data = fetch_article(url)
+        logger.info(f"Processing article from {url}")
 
-        # Створюємо статтю
+        # Extract article content
+        article_data = fetch_article(url)
+
+        if (
+            not article_data.get("content")
+            or len(article_data.get("content", "")) < 100
+        ):
+            logger.warning(f"Insufficient content extracted from {url}")
+            return f"Insufficient content from {url}"
+
+        # Extract domain for categorization
+        domain = urlparse(url).netloc
+
+        # Create initial article record
         article = Article.objects.create(
             source_url=url,
-            title=data["title"],
-            content=data["content"],
+            title=article_data.get("title", f"Article from {domain}"),
+            content=article_data["content"],
+            authors=article_data.get("authors", ""),
+            meta_description=article_data.get("meta_description", ""),
+            top_image=article_data.get("top_image", ""),
+            source_domain=domain,
+            language=article_data.get("language", "unknown"),
+            word_count=int(article_data.get("word_count", "0")),
             status="processing",
         )
+        # Save to get an ID
+        article.save()
+        # Set published date if available
+        if article_data.get("publish_date"):
+            try:
+                from dateutil import parser
 
-        # Перекладаємо та стискаємо за допомогою OpenAI API
-        if settings.OPENAI_API_KEY:
-            client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+                article.published_at = parser.parse(article_data["publish_date"])
+                article.save()
+            except Exception as e:
+                logger.warning(f"Could not parse publish date for {url}: {e}")
 
-            # Визначаємо мову оригіналу та перекладаємо якщо потрібно
-            detect_prompt = f"Determine the language of this text and translate to Ukrainian if it's in English. If already in Ukrainian, just return the original text:\n\n{article.content[:1000]}"
+        # Generate summary using open-source model
+        try:
+            logger.info(f"Generating summary for article {article}")
+            summary = summarize_article(article.content, language=article.language)
 
-            translation_response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a professional translator specializing in agricultural news.",
-                    },
-                    {"role": "user", "content": detect_prompt},
-                ],
-                max_tokens=1000,
-                temperature=0.3,
-            )
-
-            translated_content = translation_response.choices[0].message.content
-            if translated_content:
-                translated_content = translated_content.strip()
-            else:
-                translated_content = article.content
-
-            # Створюємо стислий опис українською
-            summary_prompt = f"Create a concise summary in Ukrainian (3-4 sentences) of this agricultural/grain trade article:\n\n{translated_content}"
-
-            summary_response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert agricultural journalist creating concise summaries.",
-                    },
-                    {"role": "user", "content": summary_prompt},
-                ],
-                max_tokens=200,
-                temperature=0.5,
-            )
-
-            summary = summary_response.choices[0].message.content
-            if summary:
-                summary = summary.strip()
-            else:
-                summary = "Не вдалося створити стислий опис"
-
-            # Оновлюємо статтю
-            article.content = translated_content
+            # Update article with summary
             article.summary = summary
-            article.language = "uk"
             article.status = "completed"
             article.save()
 
-            return f"Article '{article.title}' processed and translated successfully from {url}"
-        else:
-            article.summary = "OpenAI API key not configured"
+            logger.info(f"Successfully processed article {article}")
+            return f"Successfully processed: {article.id} - {article}"  # type: ignore
+
+        except Exception as summary_error:
+            logger.error(f"Error generating summary for {url}: {summary_error}")
+            article.summary = "Summary generation failed"
             article.status = "failed"
             article.save()
-            return f"Article '{article.title}' saved but not processed (no API key)"
+            return (
+                f"Content extracted but summary failed for {url}: {str(summary_error)}"
+            )
 
     except Exception as e:
-        # Update article status to failed if it was created
+        logger.error(f"Error processing article from {url}: {e}")
+
+        # Try to update article status if it was created
         try:
             article = Article.objects.get(source_url=url)
             article.status = "failed"
             article.save()
         except Article.DoesNotExist:
             pass
-        print(f"Error processing article from {url}: {e}")
+
         return f"Error processing article from {url}: {str(e)}"
+
+
+@shared_task
+def reprocess_failed_articles():
+    """
+    Retry processing articles that failed previously
+    """
+    failed_articles = Article.objects.filter(status="failed")[
+        :10
+    ]  # Process 10 at a time
+
+    processed_count = 0
+
+    for article in failed_articles:
+        try:
+            logger.info(f"Reprocessing failed article: {article.source_url}")
+
+            # Try to re-extract content
+            article_data = fetch_article(article.source_url)
+
+            if article_data.get("content") and len(article_data["content"]) > 100:
+                # Update content
+                article.content = article_data["content"]
+                article.language = article_data.get("language", "unknown")
+                article.word_count = int(article_data.get("word_count", "0"))
+                article.status = "processing"
+                article.save()
+
+                # Try to generate summary again
+                summary = summarize_article(article.content, language=article.language)
+                article.summary = summary
+                article.status = "completed"
+                article.save()
+
+                processed_count += 1
+                logger.info(f"Successfully reprocessed article {article.id}")
+            else:
+                logger.warning(f"Still insufficient content for {article.source_url}")
+
+        except Exception as e:
+            logger.error(f"Error reprocessing article {article.id}: {e}")
+            continue
+
+    return f"Reprocessed {processed_count} failed articles"
+
+
+@shared_task
+def cleanup_old_articles():
+    """
+    Clean up old articles to prevent database bloat
+    """
+    from datetime import datetime, timedelta
+
+    # Delete articles older than 30 days that have failed status
+    cutoff_date = datetime.now() - timedelta(days=30)
+
+    deleted_count = Article.objects.filter(
+        created_at__lt=cutoff_date, status="failed"
+    ).delete()[0]
+
+    logger.info(f"Cleaned up {deleted_count} old failed articles")
+    return f"Cleaned up {deleted_count} old articles"
+
+
+@shared_task
+def process_specific_url(url: str):
+    """
+    Process a specific URL manually (for testing or manual additions)
+    """
+    return process_single_article(url)
+
+
+# Legacy compatibility - keep the old function name but redirect to new logic
+@shared_task
+def parse_feeds():
+    """Legacy function for backward compatibility"""
+    return discover_and_process_articles()
+
+
+@shared_task
+def fetch_and_summarize_article(url: str):
+    """Legacy function for backward compatibility"""
+    return process_single_article(url)
